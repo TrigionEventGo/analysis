@@ -23,13 +23,10 @@ Ga naar je GitHub repository → Settings → Secrets and variables → Actions 
 - `EVENTIX_CLIENT_ID` - Jouw OAuth2 client ID
 - `EVENTIX_CLIENT_SECRET` - Jouw OAuth2 client secret
 
-#### E-mail configuratie
+#### E-mail configuratie (Brevo)
+- `BREVO_API_KEY` - Je Brevo API key voor e-mail verzending
 - `MAIL_FROM` - Afzender e-mailadres (bijv. rapport@jouwdomein.nl)
 - `MAIL_TO` - Ontvanger(s), bijv. `sales@bedrijf.nl` of `naam@bedrijf.nl,team@bedrijf.nl`
-- `SMTP_HOST` - SMTP server (bijv. smtp.sendgrid.net, smtp.gmail.com)
-- `SMTP_PORT` - Meestal 465 (SSL)
-- `SMTP_USER` - SMTP gebruikersnaam (indien vereist)
-- `SMTP_PASS` - SMTP wachtwoord (indien vereist)
 
 ### 2. Lokale test
 
@@ -43,12 +40,9 @@ set EVENTIX_ACCESS_TOKEN=jouw-access-token
 set EVENTIX_REFRESH_TOKEN=jouw-refresh-token
 set EVENTIX_CLIENT_ID=jouw-client-id
 set EVENTIX_CLIENT_SECRET=jouw-client-secret
+set BREVO_API_KEY=jouw-brevo-api-key
 set MAIL_FROM=rapport@jouwdomein.nl
 set MAIL_TO=ontvanger@bedrijf.nl
-set SMTP_HOST=smtp.gmail.com
-set SMTP_PORT=465
-set SMTP_USER=jouw-email@gmail.com
-set SMTP_PASS=jouw-app-password
 
 # Script uitvoeren
 python report_daily_sales.py
@@ -114,10 +108,10 @@ De code ondersteunt alle SMTP providers met SSL/TLS. Populaire opties:
 - **Refresh token eenmalig gebruik**: Elke refresh token kan maar één keer gebruikt worden
 - **Access token verlopen**: Wordt automatisch ververst, maar kan 401 errors geven tijdens refresh
 
-### E-mail problemen
-- Controleer SMTP instellingen
-- Voor Gmail: gebruik App Password, niet je normale wachtwoord
-- Controleer firewall/proxy instellingen
+### E-mail problemen (Brevo)
+- Controleer of je Brevo API key geldig is
+- Verificeer of het afzender e-mailadres geverifieerd is in Brevo
+- Controleer Brevo quota en limieten
 
 ### Timing issues
 - Het script gebruikt Nederlandse tijdzone

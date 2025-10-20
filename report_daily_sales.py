@@ -1,11 +1,13 @@
 # report_daily_sales.py
-import os, sys, csv, json, smtplib, ssl, mimetypes
-from email.message import EmailMessage
+import os, sys, csv, json
 from pathlib import Path
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import requests
 import time
+import base64
+from sib_api_v3_sdk.rest import ApiException
+from sib_api_v3_sdk import SendSmtpEmail, SendSmtpEmailAttachment, SendSmtpEmailTo, SendSmtpEmailSender, Configuration, TransactionalEmailsApi
 
 API_BASE = os.getenv("EVENTIX_BASE", "https://api.openticket.tech")
 COMPANY_GUID = os.environ["EVENTIX_COMPANY_GUID"]
@@ -17,12 +19,10 @@ CLIENT_SECRET = os.environ["EVENTIX_CLIENT_SECRET"]
 # Token storage file (for persistence across runs)
 TOKEN_FILE = Path("eventix_tokens.json")
 
+# Brevo (Sendinblue) configuration
+BREVO_API_KEY = os.environ["BREVO_API_KEY"]
 MAIL_FROM = os.environ["MAIL_FROM"]
 MAIL_TO = os.environ["MAIL_TO"]        # comma-gescheiden lijst kan ook
-SMTP_HOST = os.environ["SMTP_HOST"]
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
-SMTP_USER = os.environ.get("SMTP_USER")
-SMTP_PASS = os.environ.get("SMTP_PASS")
 
 NL = ZoneInfo("Europe/Amsterdam")
 
@@ -248,23 +248,54 @@ def summarize(orders):
     return total_orders, revenue
 
 def send_mail(subject, body, attachments):
-    msg = EmailMessage()
-    msg["From"] = MAIL_FROM
-    msg["To"] = MAIL_TO
-    msg["Subject"] = subject
-    msg.set_content(body)
-
+    """Send email using Brevo API"""
+    
+    # Configure Brevo API
+    configuration = Configuration()
+    configuration.api_key['api-key'] = BREVO_API_KEY
+    
+    # Create API instance
+    api_instance = TransactionalEmailsApi(requests.Session())
+    
+    # Prepare sender
+    sender = SendSmtpEmailSender(email=MAIL_FROM, name="Eventix Daily Report")
+    
+    # Prepare recipients
+    recipients = []
+    for email in MAIL_TO.split(','):
+        recipients.append(SendSmtpEmailTo(email=email.strip()))
+    
+    # Prepare attachments
+    email_attachments = []
     for path in attachments:
         p = Path(path)
-        ctype, _ = mimetypes.guess_type(p.name)
-        maintype, subtype = (ctype or "application/octet-stream").split("/", 1)
-        msg.add_attachment(p.read_bytes(), maintype=maintype, subtype=subtype, filename=p.name)
-
-    context = ssl.create_default_context()
-    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as s:
-        if SMTP_USER and SMTP_PASS:
-            s.login(SMTP_USER, SMTP_PASS)
-        s.send_message(msg)
+        if p.exists():
+            with open(p, 'rb') as f:
+                content = f.read()
+                encoded_content = base64.b64encode(content).decode('utf-8')
+                attachment = SendSmtpEmailAttachment(
+                    content=encoded_content,
+                    name=p.name
+                )
+                email_attachments.append(attachment)
+    
+    # Create email
+    send_smtp_email = SendSmtpEmail(
+        sender=sender,
+        to=recipients,
+        subject=subject,
+        html_content=body.replace('\n', '<br>'),
+        text_content=body,
+        attachment=email_attachments if email_attachments else None
+    )
+    
+    try:
+        # Send email
+        api_response = api_instance.send_transac_email(send_smtp_email)
+        print(f"Email sent successfully. Message ID: {api_response.message_id}")
+    except ApiException as e:
+        print(f"Error sending email: {e}")
+        raise
 
 def main():
     start_iso, end_iso, y_date = nl_yesterday_range()
