@@ -5,10 +5,18 @@ from pathlib import Path
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import requests
+import time
 
 API_BASE = os.getenv("EVENTIX_BASE", "https://api.eventix.io")
 COMPANY_GUID = os.environ["EVENTIX_COMPANY_GUID"]
-TOKEN = os.environ["EVENTIX_TOKEN"]  # Bearer token of andere header (zie Eventix)
+# OAuth2 tokens
+ACCESS_TOKEN = os.environ["EVENTIX_ACCESS_TOKEN"]
+REFRESH_TOKEN = os.environ["EVENTIX_REFRESH_TOKEN"]
+CLIENT_ID = os.environ["EVENTIX_CLIENT_ID"]
+CLIENT_SECRET = os.environ["EVENTIX_CLIENT_SECRET"]
+# Token storage file (for persistence across runs)
+TOKEN_FILE = Path("eventix_tokens.json")
+
 MAIL_FROM = os.environ["MAIL_FROM"]
 MAIL_TO = os.environ["MAIL_TO"]        # comma-gescheiden lijst kan ook
 SMTP_HOST = os.environ["SMTP_HOST"]
@@ -17,6 +25,73 @@ SMTP_USER = os.environ.get("SMTP_USER")
 SMTP_PASS = os.environ.get("SMTP_PASS")
 
 NL = ZoneInfo("Europe/Amsterdam")
+
+def load_tokens():
+    """Load tokens from file if they exist and are not expired"""
+    if TOKEN_FILE.exists():
+        try:
+            with open(TOKEN_FILE, 'r') as f:
+                tokens = json.load(f)
+                # Check if access token is still valid (with 1 hour buffer)
+                if tokens.get('expires_at', 0) > time.time() + 3600:
+                    return tokens.get('access_token'), tokens.get('refresh_token')
+        except Exception:
+            pass
+    return None, None
+
+def save_tokens(access_token, refresh_token, expires_in):
+    """Save tokens to file with expiration time"""
+    tokens = {
+        'access_token': access_token,
+        'refresh_token': refresh_token,
+        'expires_at': time.time() + expires_in
+    }
+    with open(TOKEN_FILE, 'w') as f:
+        json.dump(tokens, f)
+
+def refresh_access_token():
+    """Refresh the access token using refresh token"""
+    url = f"{API_BASE}/oauth/token"  # Adjust endpoint if different
+    data = {
+        'grant_type': 'refresh_token',
+        'refresh_token': REFRESH_TOKEN,
+        'client_id': CLIENT_ID,
+        'client_secret': CLIENT_SECRET
+    }
+    
+    try:
+        response = requests.post(url, data=data, timeout=30)
+        response.raise_for_status()
+        token_data = response.json()
+        
+        new_access_token = token_data['access_token']
+        new_refresh_token = token_data.get('refresh_token', REFRESH_TOKEN)  # Keep old if not provided
+        expires_in = token_data.get('expires_in', 259200)  # 3 days default
+        
+        # Save new tokens
+        save_tokens(new_access_token, new_refresh_token, expires_in)
+        return new_access_token
+        
+    except Exception as e:
+        print(f"Token refresh failed: {e}", file=sys.stderr)
+        return None
+
+def get_valid_access_token():
+    """Get a valid access token, refreshing if necessary"""
+    # Try to load from file first
+    access_token, refresh_token = load_tokens()
+    
+    if access_token:
+        return access_token
+    
+    # If no valid token in file, try to refresh
+    access_token = refresh_access_token()
+    if access_token:
+        return access_token
+    
+    # If refresh fails, use the initial access token (might be expired)
+    print("Warning: Using potentially expired access token", file=sys.stderr)
+    return ACCESS_TOKEN
 
 def nl_yesterday_range():
     today_nl = datetime.now(NL).date()
@@ -41,12 +116,26 @@ def fetch_orders_via_statistics_orders(start_iso, end_iso):
         "sorting": "",
         "purchase_channels": ["api","shop"]
     }
+    
+    # Get valid access token
+    access_token = get_valid_access_token()
+    
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {TOKEN}",
+        "Authorization": f"Bearer {access_token}",
     }
+    
     r = requests.post(url, json=body, headers=headers, timeout=60)
+    
+    # If token is expired, try to refresh and retry once
+    if r.status_code == 401:
+        print("Access token expired, refreshing...", file=sys.stderr)
+        access_token = refresh_access_token()
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+            r = requests.post(url, json=body, headers=headers, timeout=60)
+    
     r.raise_for_status()
     return r.json()
 
@@ -63,12 +152,26 @@ def fetch_orders_via_search(start_iso, end_iso):
         "events": "",
         "sorting": "created_at:asc"
     }
+    
+    # Get valid access token
+    access_token = get_valid_access_token()
+    
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {TOKEN}",
+        "Authorization": f"Bearer {access_token}",
     }
+    
     r = requests.post(url, json=body, headers=headers, timeout=60)
+    
+    # If token is expired, try to refresh and retry once
+    if r.status_code == 401:
+        print("Access token expired, refreshing...", file=sys.stderr)
+        access_token = refresh_access_token()
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+            r = requests.post(url, json=body, headers=headers, timeout=60)
+    
     r.raise_for_status()
     return r.json()
 

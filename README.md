@@ -16,9 +16,12 @@ Dit systeem haalt automatisch dagelijks je verkoopgegevens op van Eventix en stu
 
 Ga naar je GitHub repository → Settings → Secrets and variables → Actions en voeg deze secrets toe:
 
-#### Eventix API
+#### Eventix OAuth2 API
 - `EVENTIX_COMPANY_GUID` - Jouw company GUID bij Eventix
-- `EVENTIX_TOKEN` - Jouw API token/bearer (zoals je ook in Postman gebruikt)
+- `EVENTIX_ACCESS_TOKEN` - Jouw OAuth2 access token (3 dagen geldig)
+- `EVENTIX_REFRESH_TOKEN` - Jouw OAuth2 refresh token (1 jaar geldig)
+- `EVENTIX_CLIENT_ID` - Jouw OAuth2 client ID
+- `EVENTIX_CLIENT_SECRET` - Jouw OAuth2 client secret
 
 #### E-mail configuratie
 - `MAIL_FROM` - Afzender e-mailadres (bijv. rapport@jouwdomein.nl)
@@ -36,7 +39,10 @@ pip install -r requirements.txt
 
 # Environment variables instellen (Windows)
 set EVENTIX_COMPANY_GUID=jouw-guid
-set EVENTIX_TOKEN=jouw-token
+set EVENTIX_ACCESS_TOKEN=jouw-access-token
+set EVENTIX_REFRESH_TOKEN=jouw-refresh-token
+set EVENTIX_CLIENT_ID=jouw-client-id
+set EVENTIX_CLIENT_SECRET=jouw-client-secret
 set MAIL_FROM=rapport@jouwdomein.nl
 set MAIL_TO=ontvanger@bedrijf.nl
 set SMTP_HOST=smtp.gmail.com
@@ -47,6 +53,12 @@ set SMTP_PASS=jouw-app-password
 # Script uitvoeren
 python report_daily_sales.py
 ```
+
+#### OAuth2 Token Management
+Het script beheert automatisch je OAuth2 tokens:
+- **Access tokens** worden automatisch ververst wanneer ze verlopen (3 dagen)
+- **Refresh tokens** worden opgeslagen en hergebruikt (1 jaar geldig)
+- **Token bestand** (`eventix_tokens.json`) wordt lokaal opgeslagen voor persistentie
 
 ### 3. GitHub Actions
 
@@ -90,9 +102,10 @@ De code ondersteunt alle SMTP providers met SSL/TLS. Populaire opties:
 ## Troubleshooting
 
 ### API foutmeldingen
-- Controleer of je `EVENTIX_TOKEN` geldig is
+- Controleer of je OAuth2 tokens geldig zijn (`EVENTIX_ACCESS_TOKEN`, `EVENTIX_REFRESH_TOKEN`)
 - Verificeer je `EVENTIX_COMPANY_GUID`
 - Check of de API endpoints beschikbaar zijn
+- Controleer of je `EVENTIX_CLIENT_ID` en `EVENTIX_CLIENT_SECRET` correct zijn
 
 ### E-mail problemen
 - Controleer SMTP instellingen
@@ -107,11 +120,12 @@ De code ondersteunt alle SMTP providers met SSL/TLS. Populaire opties:
 
 ```
 Event-Go/
-├── report_daily_sales.py    # Hoofdscript
+├── report_daily_sales.py    # Hoofdscript met OAuth2 ondersteuning
 ├── requirements.txt         # Python dependencies
 ├── README.md               # Deze documentatie
 ├── output/                 # CSV bestanden
 │   └── .gitkeep
+├── eventix_tokens.json     # OAuth2 token opslag (wordt automatisch aangemaakt)
 └── .github/
     └── workflows/
         └── cron.yml        # GitHub Actions workflow
