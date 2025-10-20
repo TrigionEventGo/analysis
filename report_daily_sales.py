@@ -49,29 +49,53 @@ def save_tokens(access_token, refresh_token, expires_in):
     with open(TOKEN_FILE, 'w') as f:
         json.dump(tokens, f)
 
+def load_refresh_token():
+    """Return the most recent refresh token (file first, then env)."""
+    if TOKEN_FILE.exists():
+        try:
+            with open(TOKEN_FILE, 'r') as f:
+                tokens = json.load(f)
+                rt = tokens.get('refresh_token')
+                if rt:
+                    return rt
+        except Exception:
+            pass
+    return REFRESH_TOKEN
+
 def refresh_access_token():
     """Refresh the access token using refresh token"""
     url = "https://auth.openticket.tech/tokens"  # Official Eventix OAuth2 endpoint
-    data = {
+    # Always prefer the latest refresh token from file, as Eventix uses one-time refresh tokens
+    refresh_token = load_refresh_token()
+    form = {
         'grant_type': 'refresh_token',
-        'refresh_token': REFRESH_TOKEN,
+        'refresh_token': refresh_token,
         'client_id': CLIENT_ID,
-        'client_secret': CLIENT_SECRET
+        'client_secret': CLIENT_SECRET,
     }
     
     try:
-        response = requests.post(url, json=data, timeout=30)
+        # OAuth2 token endpoints expect application/x-www-form-urlencoded
+        headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+        response = requests.post(url, data=form, headers=headers, timeout=30)
         response.raise_for_status()
         token_data = response.json()
         
         new_access_token = token_data['access_token']
-        new_refresh_token = token_data.get('refresh_token', REFRESH_TOKEN)  # Keep old if not provided
+        new_refresh_token = token_data.get('refresh_token', refresh_token)  # Keep old if not provided
         expires_in = token_data.get('expires_in', 259200)  # 3 days default
         
         # Save new tokens
         save_tokens(new_access_token, new_refresh_token, expires_in)
         return new_access_token
         
+    except requests.HTTPError as e:
+        try:
+            err_text = e.response.text if e.response is not None else str(e)
+        except Exception:
+            err_text = str(e)
+        print(f"Token refresh failed ({getattr(e.response, 'status_code', '?')}): {err_text}", file=sys.stderr)
+        return None
     except Exception as e:
         print(f"Token refresh failed: {e}", file=sys.stderr)
         return None
@@ -90,7 +114,7 @@ def get_valid_access_token():
         return access_token
     
     # If refresh fails, use the initial access token (might be expired)
-    print("Warning: Using potentially expired access token", file=sys.stderr)
+    print("Warning: Using potentially expired access token from ENV. A 401 is likely.", file=sys.stderr)
     return ACCESS_TOKEN
 
 def nl_yesterday_range():
@@ -131,15 +155,27 @@ def fetch_orders_via_orders_api(start_iso, end_iso):
         try:
             r = requests.get(url, params=params, headers=headers, timeout=60)
             
-            # If token is expired, try to refresh and retry once
+            # If token is expired/invalid, try to refresh and retry once
             if r.status_code == 401:
-                print("Access token expired, refreshing...", file=sys.stderr)
+                print("Access token unauthorized (401). Trying refresh...", file=sys.stderr)
                 access_token = refresh_access_token()
                 if access_token:
                     headers["Authorization"] = f"Bearer {access_token}"
                     r = requests.get(url, params=params, headers=headers, timeout=60)
+                else:
+                    # No new token obtained; include server response for easier debugging
+                    try:
+                        print(f"401 response: {r.text}", file=sys.stderr)
+                    except Exception:
+                        pass
             
-            r.raise_for_status()
+            # Raise for non-2xx after potential retry
+            if r.status_code >= 400:
+                try:
+                    print(f"Error response ({r.status_code}): {r.text}", file=sys.stderr)
+                except Exception:
+                    pass
+                r.raise_for_status()
             data = r.json()
             
             # Add orders from this page
