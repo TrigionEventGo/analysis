@@ -254,8 +254,8 @@ def send_mail(subject, body, attachments):
     configuration = Configuration()
     configuration.api_key['api-key'] = BREVO_API_KEY
     
-    # Create API instance
-    api_instance = TransactionalEmailsApi(requests.Session())
+    # Create API instance with configuration
+    api_instance = TransactionalEmailsApi(configuration)
     
     # Prepare sender
     sender = SendSmtpEmailSender(email=MAIL_FROM, name="Eventix Daily Report")
@@ -303,11 +303,19 @@ def main():
         payload = fetch_orders_via_orders_api(start_iso, end_iso)
     except Exception as e:
         print("Kon orders niet ophalen:", e, file=sys.stderr)
+        # Stuur een foutmelding e-mail
+        try:
+            error_subject = f"Fout in verkooprapport {y_date.isoformat()}"
+            error_body = f"Er is een fout opgetreden bij het ophalen van orders voor {y_date.isoformat()}:\n\n{str(e)}\n\nControleer de Eventix API credentials en probeer opnieuw."
+            send_mail(error_subject, error_body, [])
+        except:
+            pass  # Als e-mail ook faalt, negeer dan
         sys.exit(1)
 
     orders = extract_orders(payload)
     csv_path = write_csv(orders, y_date)
     n, revenue = summarize(orders)
+    
     subject = f"Verkooprapport {y_date.isoformat()} – {n} orders, €{revenue:,.2f}".replace(',', 'X').replace('.', ',').replace('X','.')
     body = (
         f"Goedemorgen,\n\n"
@@ -317,8 +325,13 @@ def main():
         f"In de bijlage vind je de CSV met details.\n"
         f"Periode: {start_iso} t/m {end_iso}\n"
     )
-    send_mail(subject, body, [csv_path])
-    print("Rapport verstuurd:", csv_path)
+    
+    try:
+        send_mail(subject, body, [csv_path])
+        print("Rapport verstuurd:", csv_path)
+    except Exception as e:
+        print("Fout bij versturen e-mail:", e, file=sys.stderr)
+        print("CSV wel aangemaakt:", csv_path)
 
 if __name__ == "__main__":
     main()
