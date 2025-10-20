@@ -30,7 +30,7 @@ jobs:
           EVENTIX_CLIENT_ID: ${{ secrets.EVENTIX_CLIENT_ID }}
           EVENTIX_CLIENT_SECRET: ${{ secrets.EVENTIX_CLIENT_SECRET }}
           BREVO_API_KEY: ${{ secrets.BREVO_API_KEY }}
-          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_FROM: noreply@event-go.nl
           MAIL_TO: ${{ secrets.MAIL_TO }}
         run: python report_daily_sales.py
 
