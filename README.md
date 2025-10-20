@@ -55,10 +55,11 @@ python report_daily_sales.py
 ```
 
 #### OAuth2 Token Management
-Het script beheert automatisch je OAuth2 tokens:
+Het script beheert automatisch je OAuth2 tokens via de officiële Eventix endpoint:
 - **Access tokens** worden automatisch ververst wanneer ze verlopen (3 dagen)
-- **Refresh tokens** worden opgeslagen en hergebruikt (1 jaar geldig)
+- **Refresh tokens** worden opgeslagen en hergebruikt (365 dagen geldig, éénmalig gebruik)
 - **Token bestand** (`eventix_tokens.json`) wordt lokaal opgeslagen voor persistentie
+- **Endpoint**: `https://auth.openticket.tech/tokens` (officiële Eventix OAuth2 service)
 
 ### 3. GitHub Actions
 
@@ -106,6 +107,11 @@ De code ondersteunt alle SMTP providers met SSL/TLS. Populaire opties:
 - Verificeer je `EVENTIX_COMPANY_GUID`
 - Check of de API endpoints beschikbaar zijn
 - Controleer of je `EVENTIX_CLIENT_ID` en `EVENTIX_CLIENT_SECRET` correct zijn
+
+### OAuth2 Token Problemen
+- **Refresh token verlopen**: Na 365 dagen moet je opnieuw autoriseren via de Eventix dashboard
+- **Refresh token eenmalig gebruik**: Elke refresh token kan maar één keer gebruikt worden
+- **Access token verlopen**: Wordt automatisch ververst, maar kan 401 errors geven tijdens refresh
 
 ### E-mail problemen
 - Controleer SMTP instellingen

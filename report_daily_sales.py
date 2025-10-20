@@ -51,7 +51,7 @@ def save_tokens(access_token, refresh_token, expires_in):
 
 def refresh_access_token():
     """Refresh the access token using refresh token"""
-    url = f"{API_BASE}/oauth/token"  # Adjust endpoint if different
+    url = "https://auth.openticket.tech/tokens"  # Official Eventix OAuth2 endpoint
     data = {
         'grant_type': 'refresh_token',
         'refresh_token': REFRESH_TOKEN,
@@ -60,7 +60,7 @@ def refresh_access_token():
     }
     
     try:
-        response = requests.post(url, data=data, timeout=30)
+        response = requests.post(url, json=data, timeout=30)
         response.raise_for_status()
         token_data = response.json()
         
