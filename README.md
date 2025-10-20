@@ -1,0 +1,118 @@
+# Eventix Dagelijks Verkooprapport
+
+Dit systeem haalt automatisch dagelijks je verkoopgegevens op van Eventix en stuurt deze per e-mail door als CSV-rapport.
+
+## Wat het doet
+
+- **Bepaalt gisteren** in Nederlandse tijdzone (Europe/Amsterdam)
+- **Haalt orders op** via Eventix API (`/statistics/orders/{company_guid}` of fallback naar `/statistics/search`)
+- **Genereert CSV** met orderdetails (ID, datum, event, bedrag)
+- **Stuurt e-mail** met samenvatting en CSV-bijlage
+- **Draait automatisch** elke ochtend om 07:30 NL-tijd via GitHub Actions
+
+## Setup
+
+### 1. GitHub Secrets instellen
+
+Ga naar je GitHub repository → Settings → Secrets and variables → Actions en voeg deze secrets toe:
+
+#### Eventix API
+- `EVENTIX_COMPANY_GUID` - Jouw company GUID bij Eventix
+- `EVENTIX_TOKEN` - Jouw API token/bearer (zoals je ook in Postman gebruikt)
+
+#### E-mail configuratie
+- `MAIL_FROM` - Afzender e-mailadres (bijv. rapport@jouwdomein.nl)
+- `MAIL_TO` - Ontvanger(s), bijv. `sales@bedrijf.nl` of `naam@bedrijf.nl,team@bedrijf.nl`
+- `SMTP_HOST` - SMTP server (bijv. smtp.sendgrid.net, smtp.gmail.com)
+- `SMTP_PORT` - Meestal 465 (SSL)
+- `SMTP_USER` - SMTP gebruikersnaam (indien vereist)
+- `SMTP_PASS` - SMTP wachtwoord (indien vereist)
+
+### 2. Lokale test
+
+```bash
+# Dependencies installeren
+pip install -r requirements.txt
+
+# Environment variables instellen (Windows)
+set EVENTIX_COMPANY_GUID=jouw-guid
+set EVENTIX_TOKEN=jouw-token
+set MAIL_FROM=rapport@jouwdomein.nl
+set MAIL_TO=ontvanger@bedrijf.nl
+set SMTP_HOST=smtp.gmail.com
+set SMTP_PORT=465
+set SMTP_USER=jouw-email@gmail.com
+set SMTP_PASS=jouw-app-password
+
+# Script uitvoeren
+python report_daily_sales.py
+```
+
+### 3. GitHub Actions
+
+Het systeem draait automatisch via GitHub Actions:
+- **Wintertijd**: 06:30 UTC (07:30 NL-tijd)
+- **Zomertijd**: 05:30 UTC (07:30 NL-tijd)
+- **Handmatig**: Via "Actions" tab → "Dagelijks verkooprapport" → "Run workflow"
+
+## Output
+
+### CSV bestand
+Elke dag wordt een CSV aangemaakt in `output/sales_YYYY-MM-DD.csv` met:
+- `order_id` - Order ID van Eventix
+- `created_at` - Aanmaakdatum
+- `event_name` - Naam van het evenement
+- `currency` - Valuta (meestal EUR)
+- `total` - Totaalbedrag
+
+### E-mail
+- Onderwerp: "Verkooprapport YYYY-MM-DD – X orders, €Y,YY"
+- Inhoud: Samenvatting met aantal orders en omzet
+- Bijlage: CSV bestand met alle details
+
+## Aanpassingen
+
+### Meer dan 1000 orders per dag?
+Voeg paging toe door de `limit` en `offset` parameters aan te passen in de `fetch_orders_via_statistics_orders()` functie.
+
+### Andere tijdsfilter?
+Pas `range_applies_to` aan naar `updated_at` in plaats van `created_at` voor gewijzigde orders.
+
+### Specifieke events?
+Voeg event GUIDs toe aan de `events` parameter in de API call.
+
+### Andere SMTP provider?
+De code ondersteunt alle SMTP providers met SSL/TLS. Populaire opties:
+- **Gmail**: smtp.gmail.com:465
+- **SendGrid**: smtp.sendgrid.net:465
+- **Outlook**: smtp-mail.outlook.com:587 (STARTTLS)
+
+## Troubleshooting
+
+### API foutmeldingen
+- Controleer of je `EVENTIX_TOKEN` geldig is
+- Verificeer je `EVENTIX_COMPANY_GUID`
+- Check of de API endpoints beschikbaar zijn
+
+### E-mail problemen
+- Controleer SMTP instellingen
+- Voor Gmail: gebruik App Password, niet je normale wachtwoord
+- Controleer firewall/proxy instellingen
+
+### Timing issues
+- Het script gebruikt Nederlandse tijdzone
+- GitHub Actions draait in UTC, vandaar de verschillende cron schedules voor zomer/winter
+
+## Bestandsstructuur
+
+```
+Event-Go/
+├── report_daily_sales.py    # Hoofdscript
+├── requirements.txt         # Python dependencies
+├── README.md               # Deze documentatie
+├── output/                 # CSV bestanden
+│   └── .gitkeep
+└── .github/
+    └── workflows/
+        └── cron.yml        # GitHub Actions workflow
+```
