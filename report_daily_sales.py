@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import requests
 import time
 
-API_BASE = os.getenv("EVENTIX_BASE", "https://api.eventix.io")
+API_BASE = os.getenv("EVENTIX_BASE", "https://api.openticket.tech")
 COMPANY_GUID = os.environ["EVENTIX_COMPANY_GUID"]
 # OAuth2 tokens
 ACCESS_TOKEN = os.environ["EVENTIX_ACCESS_TOKEN"]
@@ -100,80 +100,66 @@ def nl_yesterday_range():
     end   = datetime(y.year, y.month, y.day, 23, 59, 59, tzinfo=NL)
     return start.isoformat(), end.isoformat(), y
 
-def fetch_orders_via_statistics_orders(start_iso, end_iso):
-    """Probeer de 'statistics/orders/{company_guid}'-endpoint eerst."""
-    url = f"{API_BASE}/statistics/orders/{COMPANY_GUID}"
-    # Body volgt de collectie (offset/limit/timeunit/range_applies_to/start/end/filters/etc.).
-    body = {
-        "offset": 0,
-        "limit": 1000,          # als je >1000 verwacht: in pages lopen
-        "timeunit": "day",
-        "range_applies_to": "created_at",   # pas aan naar 'updated_at' indien gewenst
-        "start": start_iso,
-        "end": end_iso,
-        "filters": "",
-        "events": "",
-        "sorting": "",
-        "purchase_channels": ["api","shop"]
-    }
+def fetch_orders_via_orders_api(start_iso, end_iso):
+    """Gebruik het werkende orders endpoint met pagination."""
+    url = f"{API_BASE}/orders"
     
     # Get valid access token
     access_token = get_valid_access_token()
     
     headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
+        "Accept": "application/json, text/plain, */*",
         "Authorization": f"Bearer {access_token}",
+        "Company": COMPANY_GUID,
+        "X-Authorization-By-OpenTicket": "1",
+        "User-Agent": "Eventix-Daily-Report/1.0"
     }
     
-    r = requests.post(url, json=body, headers=headers, timeout=60)
+    all_orders = []
+    page = 1
+    per_page = 100  # Haal meer orders per pagina op
     
-    # If token is expired, try to refresh and retry once
-    if r.status_code == 401:
-        print("Access token expired, refreshing...", file=sys.stderr)
-        access_token = refresh_access_token()
-        if access_token:
-            headers["Authorization"] = f"Bearer {access_token}"
-            r = requests.post(url, json=body, headers=headers, timeout=60)
+    while True:
+        params = {
+            "page": page,
+            "per_page": per_page,
+            "include": "payments,shop,tickets_count",
+            "append": "events",
+            "created_at": f"{start_iso},{end_iso}"  # Datum filter
+        }
+        
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=60)
+            
+            # If token is expired, try to refresh and retry once
+            if r.status_code == 401:
+                print("Access token expired, refreshing...", file=sys.stderr)
+                access_token = refresh_access_token()
+                if access_token:
+                    headers["Authorization"] = f"Bearer {access_token}"
+                    r = requests.get(url, params=params, headers=headers, timeout=60)
+            
+            r.raise_for_status()
+            data = r.json()
+            
+            # Add orders from this page
+            if 'data' in data and data['data']:
+                all_orders.extend(data['data'])
+                
+                # Check if there are more pages
+                if page >= data.get('last_page', 1):
+                    break
+                page += 1
+            else:
+                break
+                
+        except Exception as e:
+            print(f"Error fetching page {page}: {e}", file=sys.stderr)
+            break
     
-    r.raise_for_status()
-    return r.json()
+    return {"data": all_orders}
 
-def fetch_orders_via_search(start_iso, end_iso):
-    """Fallback: 'statistics/search' geeft een lijst orders (max 1000)."""
-    url = f"{API_BASE}/statistics/search"
-    # Veel implementaties accepteren een 'filters' string; als jouw tenant een ander
-    # formaat vereist, pas dit aan (Eventix kan per omgeving verschillen).
-    body = {
-        "search": "",
-        "limit": 1000,
-        "offset": 0,
-        "filters": f"created_at>={start_iso} AND created_at<={end_iso}",
-        "events": "",
-        "sorting": "created_at:asc"
-    }
-    
-    # Get valid access token
-    access_token = get_valid_access_token()
-    
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {access_token}",
-    }
-    
-    r = requests.post(url, json=body, headers=headers, timeout=60)
-    
-    # If token is expired, try to refresh and retry once
-    if r.status_code == 401:
-        print("Access token expired, refreshing...", file=sys.stderr)
-        access_token = refresh_access_token()
-        if access_token:
-            headers["Authorization"] = f"Bearer {access_token}"
-            r = requests.post(url, json=body, headers=headers, timeout=60)
-    
-    r.raise_for_status()
-    return r.json()
+# Fallback functie verwijderd - we gebruiken alleen het werkende orders endpoint
 
 def try_get(d, *keys, default=None):
     cur = d
@@ -188,45 +174,53 @@ def extract_orders(payload):
     """
     Normaliseer naar lijst van orders met minimaal:
     id, created_at, event_name, currency, total (float)
-    We proberen een paar veel-voorkomende sleutelvarianten.
+    Gebaseerd op de nieuwe orders API data structuur.
     """
     orders = []
-    # vaak zitten resultaten onder 'data', 'orders', of direct in payload
-    candidates = []
-    for k in ("orders", "data", "hits", "results"):
-        v = payload.get(k)
-        if isinstance(v, list):
-            candidates = v
-            break
-    if not candidates and isinstance(payload, list):
-        candidates = payload
+    
+    # Haal orders uit de data array
+    candidates = payload.get("data", [])
+    if not isinstance(candidates, list):
+        return orders
 
     for o in candidates:
-        oid = o.get("id") or o.get("guid") or o.get("_id") or ""
-        created = o.get("created_at") or o.get("created") or o.get("@timestamp") or ""
-        event_name = (
-            try_get(o, "event", "name")
-            or try_get(o, "event_name")
-            or try_get(o, "event", "title")
-            or ""
-        )
-        currency = (
-            try_get(o, "currency")
-            or try_get(o, "total", "currency")
-            or "EUR"
-        )
-        # total proberen op verschillende plekken/keys
-        total = (
-            try_get(o, "total")
-            or try_get(o, "amount_total")
-            or try_get(o, "grand_total")
-            or try_get(o, "revenue")
-            or 0
-        )
-        try:
-            total = float(total)
-        except Exception:
-            total = 0.0
+        # Order ID
+        oid = o.get("guid", "")
+        
+        # Created at
+        created = o.get("created_at", "")
+        
+        # Event name - uit de events object
+        event_name = ""
+        if "events" in o and isinstance(o["events"], dict):
+            # Events is een dict met event_id: event_name
+            event_names = list(o["events"].values())
+            if event_names:
+                event_name = event_names[0]  # Neem de eerste event naam
+        
+        # Currency - standaard EUR
+        currency = "EUR"
+        
+        # Total amount - probeer verschillende velden
+        total = 0.0
+        
+        # Probeer finn_price (inclusief service fee)
+        if "finn_price" in o:
+            total = float(o["finn_price"]) / 100  # Convert from cents
+        # Probeer finn_value (zonder service fee)
+        elif "finn_value" in o:
+            total = float(o["finn_value"]) / 100  # Convert from cents
+        # Probeer amount
+        elif "amount" in o:
+            total = float(o["amount"])
+        
+        # Probeer payment total als fallback
+        if total == 0.0 and "payments" in o and isinstance(o["payments"], list) and o["payments"]:
+            payment = o["payments"][0]  # Neem eerste payment
+            if "finn_price" in payment:
+                total = float(payment["finn_price"]) / 100
+            elif "amount" in payment:
+                total = float(payment["amount"])
 
         orders.append({
             "order_id": oid,
@@ -235,6 +229,7 @@ def extract_orders(payload):
             "currency": currency,
             "total": total
         })
+    
     return orders
 
 def write_csv(orders, y_date):
@@ -274,14 +269,10 @@ def send_mail(subject, body, attachments):
 def main():
     start_iso, end_iso, y_date = nl_yesterday_range()
     try:
-        payload = fetch_orders_via_statistics_orders(start_iso, end_iso)
-    except Exception as e1:
-        # fallback naar 'statistics/search'
-        try:
-            payload = fetch_orders_via_search(start_iso, end_iso)
-        except Exception as e2:
-            print("Kon orders niet ophalen:", e1, e2, file=sys.stderr)
-            sys.exit(1)
+        payload = fetch_orders_via_orders_api(start_iso, end_iso)
+    except Exception as e:
+        print("Kon orders niet ophalen:", e, file=sys.stderr)
+        sys.exit(1)
 
     orders = extract_orders(payload)
     csv_path = write_csv(orders, y_date)

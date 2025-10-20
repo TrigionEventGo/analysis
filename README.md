@@ -5,7 +5,7 @@ Dit systeem haalt automatisch dagelijks je verkoopgegevens op van Eventix en stu
 ## Wat het doet
 
 - **Bepaalt gisteren** in Nederlandse tijdzone (Europe/Amsterdam)
-- **Haalt orders op** via Eventix API (`/statistics/orders/{company_guid}` of fallback naar `/statistics/search`)
+- **Haalt orders op** via Eventix API (`GET /orders` met pagination en datum filtering)
 - **Genereert CSV** met orderdetails (ID, datum, event, bedrag)
 - **Stuurt e-mail** met samenvatting en CSV-bijlage
 - **Draait automatisch** elke ochtend om 07:30 NL-tijd via GitHub Actions
@@ -60,6 +60,7 @@ Het script beheert automatisch je OAuth2 tokens via de officiële Eventix endpoi
 - **Refresh tokens** worden opgeslagen en hergebruikt (365 dagen geldig, éénmalig gebruik)
 - **Token bestand** (`eventix_tokens.json`) wordt lokaal opgeslagen voor persistentie
 - **Endpoint**: `https://auth.openticket.tech/tokens` (officiële Eventix OAuth2 service)
+- **Orders API**: `https://api.openticket.tech/orders` (werkende orders endpoint)
 
 ### 3. GitHub Actions
 

@@ -23,7 +23,7 @@ jobs:
 
       - name: Generate & email daily sales report
         env:
-          EVENTIX_BASE: https://api.eventix.io
+          EVENTIX_BASE: https://api.openticket.tech
           EVENTIX_COMPANY_GUID: ${{ secrets.EVENTIX_COMPANY_GUID }}
           EVENTIX_ACCESS_TOKEN: ${{ secrets.EVENTIX_ACCESS_TOKEN }}
           EVENTIX_REFRESH_TOKEN: ${{ secrets.EVENTIX_REFRESH_TOKEN }}
