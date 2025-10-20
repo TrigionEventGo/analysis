@@ -101,20 +101,17 @@ def refresh_access_token():
         return None
 
 def get_valid_access_token():
-    """Get a valid access token, refreshing if necessary"""
-    # Try to load from file first
-    access_token, refresh_token = load_tokens()
-    
+    """Get an access token without proactive refresh.
+
+    Preference: valid token from file -> ENV access token.
+    Actual refresh happens only upon 401 responses.
+    """
+    # Prefer a still-valid token saved on disk
+    access_token, _ = load_tokens()
     if access_token:
         return access_token
-    
-    # If no valid token in file, try to refresh
-    access_token = refresh_access_token()
-    if access_token:
-        return access_token
-    
-    # If refresh fails, use the initial access token (might be expired)
-    print("Warning: Using potentially expired access token from ENV. A 401 is likely.", file=sys.stderr)
+
+    # Fall back to the provided ENV access token by default
     return ACCESS_TOKEN
 
 def nl_yesterday_range():
